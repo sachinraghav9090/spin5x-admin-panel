@@ -1,9 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Search, Plus, Edit, Trash2, Loader2, ChevronLeft, ChevronRight, RefreshCw, Sparkles } from 'lucide-react';
+import { Search, Plus, Edit, Trash2, Loader2, ChevronLeft, ChevronRight, RefreshCw, Sparkles, Coins } from 'lucide-react';
 import { format } from 'date-fns';
 import { db } from '../firebase/config.js';
-import { collection, query, where, orderBy, limit, startAfter, getDocs, getCountFromServer, updateDoc, doc, addDoc, deleteDoc, Timestamp } from 'firebase/firestore';
+import { collection, query, where, orderBy, limit, startAfter, getDocs, getCountFromServer, updateDoc, doc, getDoc, setDoc, addDoc, deleteDoc, Timestamp, serverTimestamp } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 
 const ITEMS_PER_PAGE = 25;
@@ -61,7 +61,67 @@ export default function Surveys() {
   const [editingSurvey, setEditingSurvey] = useState(null);
   const [questions, setQuestions] = useState([{ question: '', options: ['', '', '', ''] }]);
   const [upgrading, setUpgrading] = useState(false);
+  const [globalMinReward, setGlobalMinReward] = useState(15);
+  const [globalMaxReward, setGlobalMaxReward] = useState(45);
+  const [savingBulkCoins, setSavingBulkCoins] = useState(false);
   const queryClient = useQueryClient();
+
+  useEffect(() => {
+    getDoc(doc(db, 'AppConfig', 'main'))
+      .then((snap) => {
+        if (snap.exists()) {
+          const d = snap.data();
+          if (d.surveyMinReward) setGlobalMinReward(d.surveyMinReward);
+          if (d.surveyMaxReward) setGlobalMaxReward(d.surveyMaxReward);
+        }
+      })
+      .catch((err) => console.error('Failed to load AppConfig for surveys:', err));
+  }, []);
+
+  const handleSaveBulkSurveyCoins = async () => {
+    if (globalMinReward <= 0 || globalMaxReward <= 0) {
+      toast.error('Coins must be greater than 0');
+      return;
+    }
+    const min = Math.min(globalMinReward, globalMaxReward);
+    const max = Math.max(globalMinReward, globalMaxReward);
+    setSavingBulkCoins(true);
+    try {
+      // 1. Update AppConfig/main for real-time app sync across all users
+      await setDoc(
+        doc(db, 'AppConfig', 'main'),
+        {
+          surveyMinReward: min,
+          surveyMaxReward: max,
+          surveyCompletionReward: min,
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
+
+      // 2. Also update all existing Surveys in collection
+      const snap = await getDocs(collection(db, 'Surveys'));
+      let updatedCount = 0;
+      for (const d of snap.docs) {
+        await updateDoc(d.ref, {
+          minReward: min,
+          maxReward: max,
+          points: min,
+          updatedAt: serverTimestamp(),
+        });
+        updatedCount++;
+      }
+
+      toast.success(`Success! All surveys updated to ${min}-${max} Coins. Real-time sync active.`);
+      queryClient.invalidateQueries({ queryKey: ['surveys'] });
+      queryClient.invalidateQueries({ queryKey: ['appConfig'] });
+      refetch();
+    } catch (err) {
+      toast.error('Failed to update survey coins: ' + err.message);
+    } finally {
+      setSavingBulkCoins(false);
+    }
+  };
 
   const buildQuery = (cursor = null) => {
     const col = collection(db, 'Surveys');
@@ -238,6 +298,59 @@ export default function Surveys() {
         </div>
       </div>
 
+      {/* ── GLOBAL SURVEY REWARD COINS (MIN & MAX BULK SETTING) ── */}
+      <div className="card p-5 border-2 border-primary-500/30 bg-gradient-to-r from-primary-50/40 via-white to-secondary-50/30 shadow-sm">
+        <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary-600 to-secondary-500 text-white flex items-center justify-center shadow-md shadow-primary-500/20 flex-shrink-0">
+              <Coins className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="text-base font-bold text-dark-900 flex items-center gap-2">
+                All Surveys Reward Coins (Min & Max)
+                <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+                  Real-time Sync Active
+                </span>
+              </h2>
+              <p className="text-xs text-dark-500 mt-0.5">
+                Set Min and Max coins once for all surveys. Users will receive random reward coins within this range upon survey completion.
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
+            <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl border border-dark-200 shadow-sm">
+              <label className="text-xs font-bold text-dark-600">Min Coins:</label>
+              <input
+                type="number"
+                min="1"
+                value={globalMinReward}
+                onChange={(e) => setGlobalMinReward(parseInt(e.target.value) || 1)}
+                className="w-16 py-1 px-1.5 text-sm text-center font-bold text-dark-900 border border-dark-200 rounded-lg focus:outline-none focus:border-primary-500"
+              />
+            </div>
+            <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl border border-dark-200 shadow-sm">
+              <label className="text-xs font-bold text-dark-600">Max Coins:</label>
+              <input
+                type="number"
+                min="1"
+                value={globalMaxReward}
+                onChange={(e) => setGlobalMaxReward(parseInt(e.target.value) || 1)}
+                className="w-16 py-1 px-1.5 text-sm text-center font-bold text-dark-900 border border-dark-200 rounded-lg focus:outline-none focus:border-primary-500"
+              />
+            </div>
+            <button
+              type="button"
+              disabled={savingBulkCoins}
+              onClick={handleSaveBulkSurveyCoins}
+              className="btn-primary py-2 px-4 text-xs font-bold whitespace-nowrap shadow-md shadow-primary-500/20 flex items-center gap-1.5"
+            >
+              {savingBulkCoins ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+              Apply to All Surveys Now
+            </button>
+          </div>
+        </div>
+      </div>
+
       <div className="card p-4">
         <div className="flex flex-col sm:flex-row gap-4">
           <div className="relative flex-1 max-w-md">
@@ -280,7 +393,14 @@ export default function Surveys() {
                       <p className="font-medium text-dark-900 truncate max-w-xs">{survey.title}</p>
                       <p className="text-sm text-dark-500 truncate max-w-xs">{survey.description}</p>
                     </td>
-                    <td className="px-4 py-3"><span className="font-mono text-dark-900">{survey.points}</span> <span className="text-xs text-dark-400">pts</span></td>
+                    <td className="px-4 py-3">
+                      <span className="font-mono text-emerald-700 font-bold">
+                        {survey.minReward && survey.maxReward
+                          ? `${survey.minReward}-${survey.maxReward}`
+                          : (globalMinReward && globalMaxReward ? `${globalMinReward}-${globalMaxReward}` : survey.points)}
+                      </span>{' '}
+                      <span className="text-xs text-dark-400">coins</span>
+                    </td>
                     <td className="px-4 py-3">
                       <span className="font-mono text-dark-900 font-semibold">{survey.questions?.length || 0}</span>
                       {(survey.questions?.length || 0) < 10 ? (

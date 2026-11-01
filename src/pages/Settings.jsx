@@ -20,7 +20,7 @@ import {
   Wallet,
 } from 'lucide-react';
 import { db } from '../firebase/config.js';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 
 export default function Settings() {
@@ -257,7 +257,24 @@ export default function Settings() {
               <input
                 type="checkbox"
                 checked={isMaintenance}
-                onChange={(e) => setMaintenanceEnabled(e.target.checked)}
+                onChange={async (e) => {
+                  const nextState = e.target.checked;
+                  setMaintenanceEnabled(nextState);
+                  try {
+                    await setDoc(doc(db, 'AppConfig', 'main'), {
+                      isMaintenanceMode: nextState,
+                      updatedAt: serverTimestamp(),
+                    }, { merge: true });
+                    queryClient.invalidateQueries({ queryKey: ['appConfig'] });
+                    toast.success(
+                      nextState
+                        ? '🚨 Maintenance Mode ACTIVATED! All user apps locked in real-time.'
+                        : '✅ Maintenance Mode DISABLED! User apps unlocked in real-time.'
+                    );
+                  } catch (err) {
+                    toast.error('Failed to update maintenance mode: ' + err.message);
+                  }
+                }}
                 className="sr-only peer"
               />
               <div className="w-14 h-7 bg-dark-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[4px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-red-600"></div>

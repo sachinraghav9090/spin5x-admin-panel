@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react';
 import { Outlet, NavLink, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../stores/authStore.js';
 import { db } from '../firebase/config.js';
-import { doc, onSnapshot } from 'firebase/firestore';
+import { doc, onSnapshot, updateDoc, serverTimestamp } from 'firebase/firestore';
+import toast from 'react-hot-toast';
 import {
   LayoutDashboard,
   Users,
@@ -21,6 +22,7 @@ import {
   Megaphone,
   Menu,
   Wrench,
+  Power,
 } from 'lucide-react';
 
 const navigation = [
@@ -182,20 +184,42 @@ export default function Layout() {
                 {currentPage?.name || 'Dashboard'}
               </h1>
             </div>
-            <div className="flex items-center gap-4">
-              {isMaintenance && (
-                <NavLink
-                  to="/settings"
-                  className="flex items-center gap-2 px-3 py-1 rounded-full bg-red-100 text-red-700 text-xs font-bold border border-red-300 animate-pulse hover:bg-red-200 transition-colors"
-                  title="Click to manage maintenance mode"
-                >
-                  <Wrench className="w-3.5 h-3.5" />
-                  <span>Maintenance Active</span>
-                </NavLink>
-              )}
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={async () => {
+                  const nextState = !isMaintenance;
+                  if (nextState && !window.confirm('Are you sure you want to ACTIVATE Maintenance Mode? This will instantly lock all user apps in real-time.')) {
+                    return;
+                  }
+                  try {
+                    await updateDoc(doc(db, 'AppConfig', 'main'), {
+                      isMaintenanceMode: nextState,
+                      updatedAt: serverTimestamp(),
+                    });
+                    toast.success(
+                      nextState
+                        ? '🚨 Maintenance Mode ACTIVATED! All user apps locked in real-time.'
+                        : '✅ Maintenance Mode DISABLED! User apps unlocked.'
+                    );
+                  } catch (err) {
+                    toast.error('Failed to update maintenance mode: ' + err.message);
+                  }
+                }}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold border transition-all cursor-pointer shadow-sm ${
+                  isMaintenance
+                    ? 'bg-red-500 hover:bg-red-600 text-white border-red-600 animate-pulse'
+                    : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-300'
+                }`}
+                title="Click to toggle App Maintenance Mode instantly in real time"
+              >
+                <Power className="w-3.5 h-3.5" />
+                <span>{isMaintenance ? 'Maintenance ACTIVE (Click to STOP)' : 'App Online (Click for Maintenance)'}</span>
+              </button>
+
               <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full bg-primary-50 text-primary-700 text-sm font-medium">
                 <span className="w-2 h-2 rounded-full bg-secondary-500 animate-pulse" />
-                <span>Live</span>
+                <span>Live Sync</span>
               </div>
             </div>
           </div>
