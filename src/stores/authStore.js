@@ -2,6 +2,8 @@ import { create } from 'zustand';
 import { auth, db } from '../firebase/config.js';
 import {
   signInWithEmailAndPassword,
+  signInWithPopup,
+  GoogleAuthProvider,
   signOut,
   onAuthStateChanged,
 } from 'firebase/auth';
@@ -84,6 +86,38 @@ export const useAuthStore = create((set, get) => ({
         email: firebaseUser.email || email,
         role: 'admin',
         name: userData?.name || 'Admin',
+        photoURL: firebaseUser.photoURL || null,
+      };
+
+      set({ user: adminUser, loading: false, initialized: true });
+    } catch (error) {
+      set({ loading: false });
+      throw error;
+    }
+  },
+
+  loginWithGoogle: async () => {
+    set({ loading: true });
+    try {
+      const provider = new GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: 'select_account' });
+      const userCredential = await signInWithPopup(auth, provider);
+      const firebaseUser = userCredential.user;
+
+      const { isAdmin, userData } = await checkFirebaseAdminRole(firebaseUser);
+
+      if (!isAdmin && !isLocalhost) {
+        await signOut(auth);
+        throw new Error(
+          'Access denied. Your Google account does not have the "admin" role in Firebase.'
+        );
+      }
+
+      const adminUser = {
+        uid: firebaseUser.uid,
+        email: firebaseUser.email || '',
+        role: 'admin',
+        name: userData?.name || firebaseUser.displayName || 'Admin',
         photoURL: firebaseUser.photoURL || null,
       };
 
