@@ -86,7 +86,7 @@ function PrivateRoute({ children }) {
     );
   }
 
-  if (!user) {
+  if (!user || user.role !== 'admin') {
     return <Navigate to="/login" replace />;
   }
 

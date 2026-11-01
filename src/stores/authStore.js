@@ -5,7 +5,7 @@ import {
   signOut,
   onAuthStateChanged,
 } from 'firebase/auth';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc } from 'firebase/firestore';
 
 const isLocalhost = Boolean(
   import.meta.env.DEV &&
@@ -21,14 +21,42 @@ const LOCAL_ADMIN = {
   photoURL: null,
 };
 
-const isRecognizedAdminEmail = (email) => {
-  if (!email) return false;
-  const e = email.toLowerCase().trim();
-  return (
-    e === 'admin@spin5x.com' ||
-    e === 'tarunvip934@gmail.com' ||
-    e.endsWith('@spin5x.com')
-  );
+/**
+ * Strictly verifies whether a Firebase user has the Admin role:
+ * 1. Document in Firestore: Users/{uid} has role === 'admin' or isAdmin === true
+ * 2. Document in Firestore: AppConfig/main has user's email in adminEmails array
+ */
+export const checkFirebaseAdminRole = async (firebaseUser) => {
+  if (!firebaseUser) return { isAdmin: false, userData: null };
+
+  try {
+    // 1. Check user profile document in Firestore Users/{uid}
+    const userDoc = await getDoc(doc(db, 'Users', firebaseUser.uid));
+    const userData = userDoc.data();
+    if (userData?.role === 'admin' || userData?.isAdmin === true) {
+      return { isAdmin: true, userData };
+    }
+
+    // 2. Check AppConfig/main adminEmails list
+    const configDoc = await getDoc(doc(db, 'AppConfig', 'main'));
+    const configData = configDoc.data();
+    const adminEmails = (configData?.adminEmails || []).map((e) =>
+      typeof e === 'string' ? e.toLowerCase().trim() : ''
+    );
+
+    const userEmail = (firebaseUser.email || '').toLowerCase().trim();
+    if (userEmail && adminEmails.includes(userEmail)) {
+      return {
+        isAdmin: true,
+        userData: userData || { role: 'admin', isAdmin: true, name: 'Admin' },
+      };
+    }
+
+    return { isAdmin: false, userData };
+  } catch (err) {
+    console.error('Error verifying Firebase admin role:', err);
+    return { isAdmin: false, userData: null };
+  }
 };
 
 export const useAuthStore = create((set, get) => ({
@@ -41,43 +69,14 @@ export const useAuthStore = create((set, get) => ({
     try {
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       const firebaseUser = userCredential.user;
-      const userEmail = (firebaseUser.email || email).toLowerCase();
 
-      const userRef = doc(db, 'Users', firebaseUser.uid);
-      const userDoc = await getDoc(userRef);
-      let userData = userDoc.data();
+      const { isAdmin, userData } = await checkFirebaseAdminRole(firebaseUser);
 
-      const isConfigured = isRecognizedAdminEmail(userEmail);
-
-      if (!userData?.isAdmin && !userData?.role?.includes('admin')) {
-        if (isConfigured) {
-          try {
-            await setDoc(
-              userRef,
-              {
-                uid: firebaseUser.uid,
-                email: userEmail,
-                name: firebaseUser.displayName || 'Spin5X Admin',
-                isAdmin: true,
-                role: 'admin',
-                updatedAt: new Date(),
-              },
-              { merge: true }
-            );
-            userData = {
-              isAdmin: true,
-              role: 'admin',
-              name: firebaseUser.displayName || 'Spin5X Admin',
-            };
-          } catch (e) {
-            console.warn('Could not auto-grant admin doc:', e);
-          }
-        }
-      }
-
-      if (!userData?.isAdmin && userData?.role !== 'admin' && !isLocalhost && !isConfigured) {
+      if (!isAdmin && !isLocalhost) {
         await signOut(auth);
-        throw new Error('Access denied. Admin privileges required (isAdmin: true).');
+        throw new Error(
+          'Access denied. Only accounts with the "admin" role in Firebase can access this panel.'
+        );
       }
 
       const adminUser = {
@@ -126,11 +125,9 @@ export const useAuthStore = create((set, get) => ({
 
         if (firebaseUser) {
           try {
-            const userDoc = await getDoc(doc(db, 'Users', firebaseUser.uid));
-            const userData = userDoc.data();
-            const isConfigured = isRecognizedAdminEmail(firebaseUser.email);
+            const { isAdmin, userData } = await checkFirebaseAdminRole(firebaseUser);
 
-            if (userData?.isAdmin || userData?.role === 'admin' || isLocalhost || isConfigured) {
+            if (isAdmin || isLocalhost) {
               set({
                 user: {
                   uid: firebaseUser.uid,
@@ -147,6 +144,7 @@ export const useAuthStore = create((set, get) => ({
             }
           } catch (error) {
             console.error('Auth init error:', error);
+            await signOut(auth).catch(() => {});
             set({ user: isLocalhost ? LOCAL_ADMIN : null, initialized: true });
           }
         } else {

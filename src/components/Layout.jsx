@@ -145,7 +145,12 @@ export default function Layout() {
                 <p className="text-sm font-medium text-dark-900 truncate">
                   {user.name || 'Admin'}
                 </p>
-                <p className="text-xs text-dark-500 truncate">{user.email}</p>
+                <div className="flex items-center gap-1.5 mt-0.5">
+                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-100 text-emerald-800">
+                    Admin Role ✓
+                  </span>
+                  <p className="text-xs text-dark-500 truncate">{user.email}</p>
+                </div>
               </div>
             </div>
           )}
