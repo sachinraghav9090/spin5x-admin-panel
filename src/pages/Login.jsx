@@ -44,7 +44,7 @@ export default function Login() {
       const code = error.code || '';
       let msg = error.message || 'Login failed. Please try again.';
       if (code === 'auth/invalid-credential' || msg.includes('invalid-credential')) {
-        msg = 'Invalid credentials. Default admin: admin@spin5x.com. Please check your password.';
+        msg = 'Invalid email/username or password. Please verify and try again.';
       } else if (code === 'auth/user-not-found' || msg.includes('user-not-found')) {
         msg = 'No user found with this email. Please check your email or contact support.';
       } else if (code === 'auth/wrong-password' || msg.includes('wrong-password')) {
@@ -54,7 +54,7 @@ export default function Login() {
       } else if (code === 'auth/unauthorized-domain' || msg.includes('unauthorized-domain')) {
         msg = 'Netlify domain is not authorized. Please add this domain to Firebase Console > Authentication > Settings > Authorized domains.';
       }
-      toast.error(msg, { duration: 6000 });
+      toast.error(msg, { duration: 5000 });
     } finally {
       setLoading(false);
     }
@@ -82,7 +82,7 @@ export default function Login() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="input pl-10"
-                placeholder="admin@spin5x.com or admin"
+                placeholder="Enter your admin email or username"
                 required
                 autoComplete="username"
                 disabled={loading}
@@ -136,21 +136,6 @@ export default function Login() {
             </button>
           )}
         </form>
-
-        <div className="mt-6 p-4 rounded-xl bg-blue-50/80 border border-blue-200/70 text-xs text-blue-900 flex flex-col gap-1.5 shadow-sm">
-          <p className="font-semibold text-blue-950 flex items-center gap-1.5">
-            <Shield className="w-3.5 h-3.5 text-blue-600" />
-            Verified Admin Credentials:
-          </p>
-          <div className="flex items-center justify-between">
-            <span className="text-blue-700">Username/Email:</span>
-            <code className="font-mono bg-white px-2 py-0.5 rounded border border-blue-200 select-all font-bold">admin@spin5x.com</code>
-          </div>
-          <div className="flex items-center justify-between">
-            <span className="text-blue-700">Password:</span>
-            <code className="font-mono bg-white px-2 py-0.5 rounded border border-blue-200 select-all font-bold">Spin5X@Admin2026!</code>
-          </div>
-        </div>
 
         <div className="mt-6 text-center text-sm text-dark-500">
           <p>Only authorized admin accounts can access this panel.</p>
