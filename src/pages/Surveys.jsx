@@ -1,41 +1,55 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { 
-  Search, 
-  Filter, 
-  Plus, 
-  Edit, 
-  Trash2, 
-  Loader2,
-  ChevronLeft,
-  ChevronRight,
-  RefreshCw,
-  Eye,
-  AlertTriangle,
-  CheckCircle,
-  XCircle,
-  FileText
-} from 'lucide-react';
+import { Search, Plus, Edit, Trash2, Loader2, ChevronLeft, ChevronRight, RefreshCw, Sparkles } from 'lucide-react';
 import { format } from 'date-fns';
-import { db } from '../firebase/config.jsx';
-import { 
-  collection, 
-  query, 
-  where, 
-  orderBy, 
-  limit, 
-  startAfter, 
-  getDocs,
-  getCountFromServer,
-  updateDoc,
-  doc,
-  addDoc,
-  deleteDoc,
-  Timestamp
-} from 'firebase/firestore';
+import { db } from '../firebase/config.js';
+import { collection, query, where, orderBy, limit, startAfter, getDocs, getCountFromServer, updateDoc, doc, addDoc, deleteDoc, Timestamp } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 
 const ITEMS_PER_PAGE = 25;
+
+const DEFAULT_BUSINESS_QUESTIONS = [
+  {
+    question: 'How do you primarily evaluate new business software or digital tools before adoption?',
+    options: ['Customer reviews and peer recommendations', 'Free trial hands-on testing', 'Brand reputation and market leadership', 'Pricing tiers and discount structures']
+  },
+  {
+    question: 'What is the most effective approach for continuous professional skill development?',
+    options: ['Interactive online courses and certifications', 'Mentorship and on-the-job apprenticeship', 'Reading industry research whitepapers and books', 'Attending annual conferences and seminars']
+  },
+  {
+    question: 'How frequently does your organization or study group review financial budgets?',
+    options: ['Weekly active tracking', 'Monthly reconciliation', 'Quarterly executive review', 'Only during annual tax filings']
+  },
+  {
+    question: 'What factor most strongly drives long-term customer loyalty in modern business?',
+    options: ['Exceptional proactive customer support', 'Lowest price in the competitive market', 'Product quality and consistent reliability', 'Brand prestige and aesthetic packaging']
+  },
+  {
+    question: 'Which metric best reflects sustainable business health over quarterly vanity numbers?',
+    options: ['Customer Lifetime Value (LTV) to Acquisition Cost (CAC) ratio', 'Gross aggregate social media impressions', 'Total registered account signups without retention', 'Short-term promotional revenue spikes']
+  },
+  {
+    question: 'What role does AI play in improving team productivity in your daily workflow?',
+    options: ['Automating repetitive documentation and administrative tasks', 'Data synthesis, research, and predictive analytics', 'Brainstorming ideas and creative drafting', 'Rarely or never used currently']
+  },
+  {
+    question: 'What is the biggest operational risk when scaling an early-stage startup?',
+    options: ['Premature scaling before reaching product-market fit', 'Inadequate working capital and cash burn mismanagement', 'Hiring misaligned talent too rapidly', 'Over-relying on a single customer or supplier']
+  },
+  {
+    question: 'How do you measure the educational effectiveness of online micro-learning modules?',
+    options: ['Practical project completion and knowledge retention tests', 'Course video playback completion percentage', 'User satisfaction surveys and net promoter score', 'Speed of module completion']
+  },
+  {
+    question: 'What marketing channel delivers the highest return on investment (ROI) for educational products?',
+    options: ['Organic search engine optimization (SEO) and educational blogs', 'High-conversion email newsletters and nurture drips', 'Targeted social media video ads (TikTok, Instagram, YouTube)', 'Influencer sponsorships and podcast endorsements']
+  },
+  {
+    question: 'Which leadership quality is most vital for managing cross-functional remote teams?',
+    options: ['Clear, asynchronous written communication and transparency', 'Strict micro-management and constant status meetings', 'Hands-off delegation with minimal follow-up', 'Enforcing strict identical physical office hours']
+  }
+];
 
 export default function Surveys() {
   const [search, setSearch] = useState('');
@@ -43,25 +57,20 @@ export default function Surveys() {
   const [sortBy, setSortBy] = useState('createdAt_desc');
   const [currentPage, setCurrentPage] = useState(1);
   const [lastDoc, setLastDoc] = useState(null);
-  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showModal, setShowModal] = useState(false);
   const [editingSurvey, setEditingSurvey] = useState(null);
+  const [questions, setQuestions] = useState([{ question: '', options: ['', '', '', ''] }]);
+  const [upgrading, setUpgrading] = useState(false);
   const queryClient = useQueryClient();
 
   const buildQuery = (cursor = null) => {
-    let q = collection(db, 'Surveys');
-    const constraints = [orderBy(sortBy.split('_')[0], sortBy.split('_')[1]), limit(ITEMS_PER_PAGE)];
-    
-    if (cursor) {
-      constraints.push(startAfter(cursor));
-    }
-    
-    if (statusFilter === 'active') {
-      constraints.unshift(where('isActive', '==', true));
-    } else if (statusFilter === 'inactive') {
-      constraints.unshift(where('isActive', '==', false));
-    }
-    
-    return query(q, ...constraints);
+    const col = collection(db, 'Surveys');
+    const [field, dir] = sortBy.split('_');
+    const constraints = [orderBy(field, dir), limit(ITEMS_PER_PAGE)];
+    if (cursor) constraints.push(startAfter(cursor));
+    if (statusFilter === 'active') constraints.unshift(where('isActive', '==', true));
+    else if (statusFilter === 'inactive') constraints.unshift(where('isActive', '==', false));
+    return query(col, ...constraints);
   };
 
   const { data: surveysData, isLoading, refetch } = useQuery({
@@ -70,166 +79,177 @@ export default function Surveys() {
       if (search) {
         const q = query(collection(db, 'Surveys'), orderBy('createdAt', 'desc'), limit(500));
         const snap = await getDocs(q);
-        return snap.docs
-          .map(doc => ({ id: doc.id, ...doc.data() }))
-          .filter(survey => 
-            survey.title?.toLowerCase().includes(search.toLowerCase()) ||
-            survey.description?.toLowerCase().includes(search.toLowerCase())
-          )
-          .slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
+        return snap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((s) => s.title?.toLowerCase().includes(search.toLowerCase()) || s.description?.toLowerCase().includes(search.toLowerCase())).slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
       }
-      
       const q = buildQuery(currentPage > 1 ? lastDoc : null);
       const snap = await getDocs(q);
-      const surveys = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      const newLastDoc = snap.docs[snap.docs.length - 1];
-      setLastDoc(newLastDoc);
-      return surveys;
+      const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      if (snap.docs.length > 0) setLastDoc(snap.docs[snap.docs.length - 1]);
+      return list;
     },
-    placeholderData: (previousData) => previousData,
+    placeholderData: (prev) => prev,
   });
 
   const { data: totalCount } = useQuery({
     queryKey: ['surveysCount', statusFilter, search],
     queryFn: async () => {
       if (search) return 0;
-      let q = collection(db, 'Surveys');
+      const col = collection(db, 'Surveys');
       const constraints = [];
-      if (statusFilter === 'active') {
-        constraints.push(where('isActive', '==', true));
-      } else if (statusFilter === 'inactive') {
-        constraints.push(where('isActive', '==', false));
-      }
-      const snap = await getCountFromServer(query(q, ...constraints));
+      if (statusFilter === 'active') constraints.push(where('isActive', '==', true));
+      else if (statusFilter === 'inactive') constraints.push(where('isActive', '==', false));
+      const snap = await getCountFromServer(query(col, ...constraints));
       return snap.data().count;
     },
   });
 
-  const surveyMutation = useMutation({
+  const saveMutation = useMutation({
     mutationFn: async ({ survey, isEdit }) => {
-      const data = {
-        ...survey,
-        updatedAt: Timestamp.now(),
-      };
+      const data = { ...survey, updatedAt: Timestamp.now() };
       delete data.id;
-      
-      if (isEdit) {
-        await updateDoc(doc(db, 'Surveys', editingSurvey.id), data);
-      } else {
-        data.createdAt = Timestamp.now();
-        await addDoc(collection(db, 'Surveys'), data);
-      }
+      if (isEdit) await updateDoc(doc(db, 'Surveys', editingSurvey.id), data);
+      else { data.createdAt = Timestamp.now(); await addDoc(collection(db, 'Surveys'), data); }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['surveys'] });
       toast.success(editingSurvey ? 'Survey updated' : 'Survey created');
-      setShowCreateModal(false);
-      setEditingSurvey(null);
+      closeModal();
     },
-    onError: () => toast.error(editingSurvey ? 'Failed to update survey' : 'Failed to create survey'),
+    onError: () => toast.error('Failed to save survey'),
   });
 
   const deleteMutation = useMutation({
-    mutationFn: async (id) => {
-      await deleteDoc(doc(db, 'Surveys', id));
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['surveys'] });
-      toast.success('Survey deleted');
-    },
+    mutationFn: async (id) => { await deleteDoc(doc(db, 'Surveys', id)); },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['surveys'] }); toast.success('Survey deleted'); },
     onError: () => toast.error('Failed to delete survey'),
   });
+
+  const createTenEmptyQuestions = () => Array.from({ length: 10 }, () => ({ question: '', options: ['', '', '', ''] }));
+
+  const upgradeAllSurveysTo10Questions = async () => {
+    try {
+      setUpgrading(true);
+      const snap = await getDocs(collection(db, 'Surveys'));
+      let upgradedCount = 0;
+      for (const docSnap of snap.docs) {
+        const data = docSnap.data();
+        const existingQs = data.questions || [];
+        if (existingQs.length < 10) {
+          const needed = 10 - existingQs.length;
+          const extraQs = DEFAULT_BUSINESS_QUESTIONS
+            .filter((q) => !existingQs.some((eq) => eq.question === q.question))
+            .slice(0, needed);
+          const fullQs = [...existingQs, ...extraQs];
+          while (fullQs.length < 10) {
+            fullQs.push(DEFAULT_BUSINESS_QUESTIONS[fullQs.length % DEFAULT_BUSINESS_QUESTIONS.length]);
+          }
+          await updateDoc(docSnap.ref, {
+            questions: fullQs,
+            points: Math.max(data.points || 0, 50),
+          });
+          upgradedCount++;
+        }
+      }
+      toast.success(
+        upgradedCount > 0
+          ? `Successfully upgraded ${upgradedCount} surveys to 10 questions each!`
+          : 'All surveys already have 10 questions!'
+      );
+      queryClient.invalidateQueries({ queryKey: ['surveys'] });
+      refetch();
+    } catch (err) {
+      toast.error('Failed to upgrade surveys: ' + err.message);
+    } finally {
+      setUpgrading(false);
+    }
+  };
+
+  const openCreate = () => { setEditingSurvey(null); setQuestions(createTenEmptyQuestions()); setShowModal(true); };
+  const openEdit = (survey) => {
+    setEditingSurvey(survey);
+    let qs = survey.questions && survey.questions.length > 0 ? [...survey.questions] : createTenEmptyQuestions();
+    if (qs.length < 10) {
+      const extra = DEFAULT_BUSINESS_QUESTIONS.filter(
+        (cand) => !qs.some((q) => q.question === cand.question)
+      ).slice(0, 10 - qs.length);
+      qs = [...qs, ...extra];
+      while (qs.length < 10) {
+        qs.push({ question: '', options: ['', '', '', ''] });
+      }
+    }
+    setQuestions(qs);
+    setShowModal(true);
+  };
+  const closeModal = () => { setShowModal(false); setEditingSurvey(null); };
+  const addQuestion = () => { if (questions.length < 10) setQuestions([...questions, { question: '', options: ['', '', '', ''] }]); };
+  const removeQuestion = (index) => { if (questions.length > 1) setQuestions(questions.filter((_, i) => i !== index)); };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.currentTarget);
+    const builtQuestions = questions.map((_, i) => {
+      const question = (fd.get('q_' + i + '_text') || '').trim();
+      const options = [
+        fd.get('q_' + i + '_o0') || '',
+        fd.get('q_' + i + '_o1') || '',
+        fd.get('q_' + i + '_o2') || '',
+        fd.get('q_' + i + '_o3') || '',
+      ].map((o) => o.trim()).filter(Boolean);
+      return { question, options };
+    }).filter((q) => q.question);
+
+    if (builtQuestions.length < 10) {
+      toast.error(`Har ek survey mein 10 questions aana chahiye (Current: ${builtQuestions.length}/10).`);
+      return;
+    }
+
+    const survey = {
+      title: fd.get('title'),
+      description: fd.get('description'),
+      points: parseInt(fd.get('points') || '50'),
+      questions: builtQuestions,
+      isActive: fd.get('isActive') === 'on',
+    };
+    saveMutation.mutate({ survey, isEdit: !!editingSurvey });
+  };
 
   const surveys = surveysData || [];
   const totalPages = Math.ceil((totalCount || 0) / ITEMS_PER_PAGE);
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    const formData = new FormData(e.currentTarget);
-    const questions = [];
-    
-    for (let i = 0; i < 10; i++) {
-      const question = formData.get('question_' + i + '_text');
-      if (question) {
-        const options = [];
-        for (let j = 0; j < 4; j++) {
-          const opt = formData.get('question_' + i + '_option_' + j);
-          if (opt) options.push(opt);
-        }
-        questions.push({ question, options });
-      }
-    }
-    
-    const survey = {
-      title: formData.get('title'),
-      description: formData.get('description'),
-      points: parseInt(formData.get('points') || '10'),
-      questions,
-      isActive: formData.get('isActive') === 'on',
-    };
-    surveyMutation.mutate({ survey, isEdit: !!editingSurvey });
-  };
-
-  const handleEdit = (survey) => {
-    setEditingSurvey(survey);
-    setShowCreateModal(true);
-  };
-
-  const handleDelete = async (id) => {
-    if (!confirm('Delete this survey?')) return;
-    await deleteMutation.mutateAsync(id);
-  };
-
   return (
     <div className="space-y-6 animate-fade-in">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        
+        <div>
           <h1 className="text-2xl font-bold text-dark-900">Surveys Management</h1>
-          <p className="text-dark-500 mt-1">Create and manage surveys for users</p>
+          <p className="text-dark-500 mt-1">Create and manage surveys for users (10 questions per survey)</p>
         </div>
-        <div className="flex gap-2">
-          <button className="btn-secondary" onClick={refetch}>
-            <RefreshCw className="w-4 h-4 mr-2" />
-            Refresh
+        <div className="flex flex-wrap gap-2">
+          <button className="btn-secondary" onClick={() => refetch()}><RefreshCw className="w-4 h-4 mr-2" />Refresh</button>
+          <button
+            type="button"
+            className="btn-secondary text-primary-700 bg-primary-50 border-primary-200 hover:bg-primary-100"
+            onClick={upgradeAllSurveysTo10Questions}
+            disabled={upgrading}
+          >
+            {upgrading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Sparkles className="w-4 h-4 mr-2" />}
+            Upgrade All to 10 Qs
           </button>
-<button className="btn-primary" onClick={() => { setEditingSurvey(null); setShowCreateModal(true); }}>
-            <Plus className="w-4 h-4 mr-2" />
-            Add Survey
-          </button>
+          <button className="btn-primary" onClick={openCreate}><Plus className="w-4 h-4 mr-2" />Add Survey</button>
         </div>
+      </div>
 
       <div className="card p-4">
         <div className="flex flex-col sm:flex-row gap-4">
           <div className="relative flex-1 max-w-md">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-dark-400" />
-            <input
-              type="text"
-              placeholder="Search by title, description..."
-              value={search}
-              onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }}
-              className="input pl-10"
-            />
+            <input type="text" placeholder="Search by title, description..." value={search} onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }} className="input pl-10" />
           </div>
           <div className="flex gap-2">
-            <select
-              value={statusFilter}
-              onChange={(e) => { setStatusFilter(e.target.value); setCurrentPage(1); }}
-              className="input w-auto"
-            >
-              <option value="all">All</option>
-              <option value="active">Active</option>
-              <option value="inactive">Inactive</option>
+            <select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setCurrentPage(1); }} className="input w-auto">
+              <option value="all">All</option><option value="active">Active</option><option value="inactive">Inactive</option>
             </select>
-            <select
-              value={sortBy}
-              onChange={(e) => { setSortBy(e.target.value); setCurrentPage(1); }}
-              className="input w-auto"
-            >
-              <option value="createdAt_desc">Newest First</option>
-              <option value="createdAt_asc">Oldest First</option>
-              <option value="points_desc">Highest Points</option>
-              <option value="points_asc">Lowest Points</option>
-              <option value="title_asc">Title A-Z</option>
+            <select value={sortBy} onChange={(e) => { setSortBy(e.target.value); setCurrentPage(1); }} className="input w-auto">
+              <option value="createdAt_desc">Newest First</option><option value="createdAt_asc">Oldest First</option><option value="points_desc">Highest Points</option>
             </select>
           </div>
         </div>
@@ -237,33 +257,22 @@ export default function Surveys() {
 
       <div className="card overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full" role="table">
-<thead className="bg-dark-50 border-b border-dark-200">
-                <tr>
-                  <th className="px-4 py-3 text-left text-sm font-semibold text-dark-600 uppercase tracking-wider">Survey</th>
-                  <th className="px-4 py-3 text-left text-sm font-semibold text-dark-600 uppercase tracking-wider">Points</th>
-                  <th className="px-4 py-3 text-left text-sm font-semibold text-dark-600 uppercase tracking-wider">Questions</th>
-                  <th className="px-4 py-3 text-left text-sm font-semibold text-dark-600 uppercase tracking-wider">Status</th>
-                  <th className="px-4 py-3 text-left text-sm font-semibold text-dark-600 uppercase tracking-wider">Created</th>
-                  <th className="w-32 px-4 py-3 text-right text-sm font-semibold text-dark-600 uppercase tracking-wider">Actions</th>
-                </tr>
-              </thead>
+          <table className="w-full">
+            <thead className="bg-dark-50 border-b border-dark-200">
+              <tr>
+                <th className="px-4 py-3 text-left text-sm font-semibold text-dark-600 uppercase tracking-wider">Survey</th>
+                <th className="px-4 py-3 text-left text-sm font-semibold text-dark-600 uppercase tracking-wider">Points</th>
+                <th className="px-4 py-3 text-left text-sm font-semibold text-dark-600 uppercase tracking-wider">Questions</th>
+                <th className="px-4 py-3 text-left text-sm font-semibold text-dark-600 uppercase tracking-wider">Status</th>
+                <th className="px-4 py-3 text-left text-sm font-semibold text-dark-600 uppercase tracking-wider">Created</th>
+                <th className="w-32 px-4 py-3 text-right text-sm font-semibold text-dark-600 uppercase tracking-wider">Actions</th>
+              </tr>
+            </thead>
             <tbody className="divide-y divide-dark-100">
-{isLoading ? (
-                <tr>
-                  <td colSpan={6} className="px-4 py-12 text-center">
-                    <div className="flex items-center justify-center gap-3">
-                      <Loader2 className="w-6 h-6 animate-spin text-primary-600" />
-                      <span className="text-dark-500">Loading surveys...</span>
-                    </div>
-                  </td>
-                </tr>
+              {isLoading ? (
+                <tr><td colSpan={6} className="px-4 py-12 text-center"><div className="flex items-center justify-center gap-3"><Loader2 className="w-6 h-6 animate-spin text-primary-600" /><span className="text-dark-500">Loading surveys...</span></div></td></tr>
               ) : surveys.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="px-4 py-12 text-center text-dark-500">
-                    No surveys found
-                  </td>
-                </tr>
+                <tr><td colSpan={6} className="px-4 py-12 text-center text-dark-500">No surveys found</td></tr>
               ) : (
                 surveys.map((survey) => (
                   <tr key={survey.id} className="hover:bg-dark-50 transition-colors">
@@ -271,40 +280,21 @@ export default function Surveys() {
                       <p className="font-medium text-dark-900 truncate max-w-xs">{survey.title}</p>
                       <p className="text-sm text-dark-500 truncate max-w-xs">{survey.description}</p>
                     </td>
+                    <td className="px-4 py-3"><span className="font-mono text-dark-900">{survey.points}</span> <span className="text-xs text-dark-400">pts</span></td>
                     <td className="px-4 py-3">
-                      <div className="flex items-center gap-1">
-                        <span className="font-mono text-dark-900">{survey.points}</span>
-                        <span className="text-xs text-dark-400">pts</span>
-                      </div>
+                      <span className="font-mono text-dark-900 font-semibold">{survey.questions?.length || 0}</span>
+                      {(survey.questions?.length || 0) < 10 ? (
+                        <span className="ml-2 inline-block text-xs bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full font-medium">Upgrade to 10</span>
+                      ) : (
+                        <span className="ml-2 inline-block text-xs bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full font-medium">10 Qs ✓</span>
+                      )}
                     </td>
-                    <td className="px-4 py-3">
-                      <span className="font-mono text-dark-900">{survey.questions?.length || 0}</span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={'badge ' + (survey.isActive ? 'badge-success' : 'badge-neutral')}>
-                        {survey.isActive ? 'Active' : 'Inactive'}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-sm text-dark-500">
-                      {survey.createdAt?.toDate ? format(survey.createdAt.toDate(), 'MMM dd, yyyy') : 'N/A'}
-                    </td>
+                    <td className="px-4 py-3"><span className={'badge ' + (survey.isActive ? 'badge-success' : 'badge-neutral')}>{survey.isActive ? 'Active' : 'Inactive'}</span></td>
+                    <td className="px-4 py-3 text-sm text-dark-500">{survey.createdAt?.toDate ? format(survey.createdAt.toDate(), 'MMM dd, yyyy') : 'N/A'}</td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-1">
-                        <button
-                          onClick={() => handleEdit(survey)}
-                          className="p-2 rounded-lg text-dark-400 hover:text-primary-600 hover:bg-primary-50 transition-colors"
-                          title="Edit"
-                        >
-                          <Edit className="w-5 h-5" />
-                        </button>
-                        <button
-                          onClick={() => handleDelete(survey.id)}
-                          disabled={deleteMutation.isPending}
-                          className="p-2 rounded-lg text-dark-400 hover:text-red-600 hover:bg-red-50 transition-colors"
-                          title="Delete"
-                        >
-                          <Trash2 className="w-5 h-5" />
-                        </button>
+                        <button onClick={() => openEdit(survey)} className="p-2 rounded-lg text-dark-400 hover:text-primary-600 hover:bg-primary-50 transition-colors" title="Edit"><Edit className="w-5 h-5" /></button>
+                        <button onClick={() => { if (confirm('Delete this survey?')) deleteMutation.mutate(survey.id); }} disabled={deleteMutation.isPending} className="p-2 rounded-lg text-dark-400 hover:text-red-600 hover:bg-red-50 transition-colors" title="Delete"><Trash2 className="w-5 h-5" /></button>
                       </div>
                     </td>
                   </tr>
@@ -313,91 +303,76 @@ export default function Surveys() {
             </tbody>
           </table>
         </div>
-
         {!isLoading && totalPages > 1 && (
           <div className="flex items-center justify-between px-4 py-4 border-t border-dark-200">
-            <div className="text-sm text-dark-500">
-              Page {currentPage} of {totalPages} ({totalCount || 0} total)
-            </div>
+            <div className="text-sm text-dark-500">Page {currentPage} of {totalPages} ({totalCount || 0} total)</div>
             <div className="flex gap-2">
-              <button
-                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                disabled={currentPage === 1}
-                className="p-2 rounded-lg border border-dark-300 hover:bg-dark-100 disabled:opacity-50"
-              >
-                <ChevronLeft className="w-5 h-5" />
-              </button>
-              <button
-                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                disabled={currentPage === totalPages}
-                className="p-2 rounded-lg border border-dark-300 hover:bg-dark-100 disabled:opacity-50"
-              >
-                <ChevronRight className="w-5 h-5" />
-              </button>
+              <button onClick={() => setCurrentPage((p) => Math.max(1, p - 1))} disabled={currentPage === 1} className="p-2 rounded-lg border border-dark-300 hover:bg-dark-100 disabled:opacity-50"><ChevronLeft className="w-5 h-5" /></button>
+              <button onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="p-2 rounded-lg border border-dark-300 hover:bg-dark-100 disabled:opacity-50"><ChevronRight className="w-5 h-5" /></button>
             </div>
           </div>
         )}
       </div>
 
-      {(showCreateModal || editingSurvey) && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => { setShowCreateModal(false); setEditingSurvey(null); }}>
-          <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+      {/* Modal */}
+      {showModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={closeModal}>
+          <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="p-6 border-b border-dark-200 flex items-center justify-between">
               <h2 className="text-xl font-bold text-dark-900">{editingSurvey ? 'Edit Survey' : 'Create Survey'}</h2>
-              <button onClick={() => { setShowCreateModal(false); setEditingSurvey(null); }} className="p-2 text-dark-400 hover:text-dark-600">×</button>
+              <button onClick={closeModal} className="p-2 text-dark-400 hover:text-dark-600 text-xl">×</button>
             </div>
-<form onSubmit={handleSubmit} className="p-6 space-y-4">
-               
-                <label htmlFor="title" className="label">Title *</label>
-                <input id="title" name="title" type="text" defaultValue={editingSurvey?.title || ''} required className="input" />
-               
-                <label htmlFor="description" className="label">Description</label>
-                <textarea id="description" name="description" rows={3} defaultValue={editingSurvey?.description || ''} className="input" />
-               
-                <label htmlFor="points" className="label">Points *</label>
-                <input id="points" name="points" type="number" min="1" defaultValue={editingSurvey?.points || 10} required className="input" />
-               
+            <form onSubmit={handleSubmit} className="p-6 space-y-4">
+              <div>
+                <label className="label">Title *</label>
+                <input name="title" type="text" defaultValue={editingSurvey?.title || ''} required className="input" />
+              </div>
+              <div>
+                <label className="label">Description</label>
+                <textarea name="description" rows={2} defaultValue={editingSurvey?.description || ''} className="input" />
+              </div>
+              <div>
+                <label className="label">Points *</label>
+                <input name="points" type="number" min="1" defaultValue={editingSurvey?.points || 10} required className="input" />
+              </div>
               <div className="border-t border-dark-200 pt-4">
-                <h3 className="font-semibold text-dark-900 mb-3">Questions (minimum 1, max 10)</h3>
-                <div className="space-y-3" id="questions-container">
-                  {(editingSurvey?.questions || [{ question: '', options: ['', '', '', ''] }]).map((q, i) => (
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="font-semibold text-dark-900">Survey Questions ({questions.length}/10)</h3>
+                  <span className="text-xs text-primary-600 font-semibold bg-primary-50 px-2 py-0.5 rounded-full border border-primary-200">
+                    Required: 10 Questions
+                  </span>
+                </div>
+                <div className="space-y-3">
+                  {questions.map((q, i) => (
                     <div key={i} className="border border-dark-200 rounded-lg p-4 space-y-3">
                       <div className="flex items-center justify-between">
                         <h4 className="font-medium text-dark-900">Question {i + 1}</h4>
-                        {i > 0 && (
-                          <button type="button" onClick={() => { /* remove question */ }} className="p-1 text-red-500 hover:bg-red-50 rounded">
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                        {questions.length > 1 && (
+                          <button type="button" onClick={() => removeQuestion(i)} className="p-1 text-red-500 hover:bg-red-50 rounded"><Trash2 className="w-4 h-4" /></button>
                         )}
-</div>
-                      
-                      <div>
-                        <label className="label">Question Text *</label>
-                        <input name={'question_' + i + '_text'} type="text" defaultValue={q.question || ''} required className="input" />
                       </div>
+                      <input name={'q_' + i + '_text'} type="text" placeholder="Question text" defaultValue={q.question || ''} required className="input" />
                       <div className="grid grid-cols-2 gap-2">
-                        <input name={'question_' + i + '_option_0'} type="text" placeholder="Option A" defaultValue={q.options?.[0] || ''} className="input" />
-                        <input name={'question_' + i + '_option_1'} type="text" placeholder="Option B" defaultValue={q.options?.[1] || ''} className="input" />
-                        <input name={'question_' + i + '_option_2'} type="text" placeholder="Option C" defaultValue={q.options?.[2] || ''} className="input" />
-                        <input name={'question_' + i + '_option_3'} type="text" placeholder="Option D" defaultValue={q.options?.[3] || ''} className="input" />
+                        <input name={'q_' + i + '_o0'} type="text" placeholder="Option A" defaultValue={q.options?.[0] || ''} className="input" />
+                        <input name={'q_' + i + '_o1'} type="text" placeholder="Option B" defaultValue={q.options?.[1] || ''} className="input" />
+                        <input name={'q_' + i + '_o2'} type="text" placeholder="Option C" defaultValue={q.options?.[2] || ''} className="input" />
+                        <input name={'q_' + i + '_o3'} type="text" placeholder="Option D" defaultValue={q.options?.[3] || ''} className="input" />
                       </div>
                     </div>
                   ))}
                 </div>
-                <button type="button" onClick={() => { /* add question */ }} className="btn-outline w-full">
-                  <Plus className="w-4 h-4 mr-2" />
-                  Add Question
-                </button>
+                {questions.length < 10 && (
+                  <button type="button" onClick={addQuestion} className="btn-outline w-full mt-3"><Plus className="w-4 h-4 mr-2" />Add Question</button>
+                )}
               </div>
-              
               <div className="flex items-center gap-2">
                 <input id="isActive" name="isActive" type="checkbox" defaultChecked={editingSurvey?.isActive !== false} className="w-4 h-4 text-primary-600 rounded border-dark-300" />
                 <label htmlFor="isActive" className="text-sm text-dark-700">Active</label>
               </div>
               <div className="flex gap-3 pt-4">
-                <button type="button" onClick={() => { setShowCreateModal(false); setEditingSurvey(null); }} className="btn-outline flex-1">Cancel</button>
-                <button type="submit" className="btn-primary flex-1" disabled={surveyMutation.isPending}>
-                  {surveyMutation.isPending ? 'Saving...' : (editingSurvey ? 'Update' : 'Create')}
+                <button type="button" onClick={closeModal} className="btn-outline flex-1">Cancel</button>
+                <button type="submit" className="btn-primary flex-1" disabled={saveMutation.isPending}>
+                  {saveMutation.isPending ? 'Saving...' : (editingSurvey ? 'Update' : 'Create')}
                 </button>
               </div>
             </form>
